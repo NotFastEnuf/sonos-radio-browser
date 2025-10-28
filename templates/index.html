@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en" x-data="app()" :class="{dark:dark}" >
+<head>
+<meta charset="utf-8" />
+<title>Sonos Radio Browser Dashboard</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  .dark body{ background:#0b1020; color:#e6eef8 }
+  .dark .card{ background:#0f1724 }
+  body{ transition: background .2s, color .2s }
+</style>
+</head>
+<body class="font-sans antialiased">
+
+<div class="container mx-auto p-6">
+
+  <header class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-3xl font-bold">Sonos Radio Browser</h1>
+      <p class="text-sm text-gray-500 dark:text-gray-400">Search, validate and play internet radio directly on your Sonos speakers.</p>
+    </div>
+    <div class="flex items-center space-x-3">
+      <label class="text-sm">Theme</label>
+      <button @click="dark = !dark" class="px-3 py-1 bg-indigo-600 text-white rounded">Toggle</button>
+    </div>
+  </header>
+
+  <!-- Top controls: speaker selector, search -->
+  <div class="grid md:grid-cols-3 gap-4 mb-6">
+    <div class="card p-4 rounded shadow">
+      <label class="block text-sm font-medium mb-2">Select Speaker</label>
+      <select x-model="selectedSpeaker" @change="refreshNowPlaying" class="w-full p-2 rounded bg-white dark:bg-gray-800">
+        <template x-for="(ip, idx) in speakers" :key="idx">
+          <option :value="ip" x-text="ip"></option>
+        </template>
+      </select>
+      <div class="mt-3 text-sm text-gray-500 dark:text-gray-400">
+        <button class="px-3 py-1 bg-gray-600 text-white rounded" @click="refreshSpeakers">Refresh</button>
+        <span class="ml-2">Found <strong x-text="speakers.length"></strong></span>
+      </div>
+    </div>
+
+    <div class="card p-4 rounded shadow md:col-span-2">
+      <div class="flex gap-2">
+        <input type="text" x-model="searchQuery" placeholder="Search stations (e.g. chill, jazz, soma)" class="flex-1 p-2 rounded bg-white dark:bg-gray-800" @keydown.enter="searchStations">
+        <button class="px-4 py-2 bg-indigo-600 text-white rounded" @click="searchStations">Search</button>
+        <button class="px-4 py-2 bg-gray-600 text-white rounded" @click="loadFavorites">Favorites</button>
+      </div>
+      <div class="mt-2 text-sm text-gray-500 dark:text-gray-400">You can search by name, tag, or leave empty to show top stations.</div>
+    </div>
+  </div>
+
+  <!-- Main layout: search results & favorites on left, now playing + custom on right -->
+  <div class="grid md:grid-cols-3 gap-6">
+
+    <!-- Left: Results -->
+    <div class="md:col-span-2 space-y-4">
+
+      <div class="card p-4 rounded shadow">
+        <h3 class="font-semibold mb-3">Search Results <span class="text-sm text-gray-500" x-text="results.length ? '(' + results.length + ')' : ''"></span></h3>
+
+        <template x-if="results.length === 0">
+          <div class="text-gray-500">No results. Try searching for "chill", "jazz", "lofi", "soma".</div>
+        </template>
+
+        <template x-for="(st, idx) in results" :key="idx">
+          <div class="flex items-center gap-3 mb-3 p-2 rounded border dark:border-gray-700" :class="nowPlayingUri===st.uri ? 'bg-indigo-50 dark:bg-indigo-900 border-indigo-300':''">
+            <img :src="st.favicon || 'https://placehold.co/48x48?text=RADIO'" class="w-12 h-12 rounded" alt="">
+            <div class="flex-1">
+              <div class="font-medium" x-text="st.name"></div>
+              <div class="text-xs text-gray-500 dark:text-gray-400" x-text="st.country + (st.bitrate? ' • ' + st.bitrate + 'kbps' : '')"></div>
+              <div class="text-xs text-gray-400 dark:text-gray-500" x-text="st.tags"></div>
+              <div class="text-xs text-gray-400 break-all" x-text="st.uri" style="font-family: ui-monospace,monospace"></div>
+            </div>
+
+            <div class="flex flex-col items-end space-y-2">
+              <button class="px-3 py-1 bg-yellow-500 text-white rounded" @click="probe(st, idx)">Test</button>
+
+              <button class="px-3 py-1 bg-green-600 text-white rounded" :disabled="!st._probe || !st._probe.playable" @click="playStation(st.uri)">Play</button>
+
+              <button class="px-3 py-1 bg-gray-600 text-white rounded" @click="addFavorite(st)">Save</button>
+
+              <div class="text-xs mt-1" x-show="st._probe" >
+                <div :class="st._probe.playable ? 'text-green-400' : 'text-red-400'" x-text="st._probe.playable ? 'Playable' : st._probe.reason"></div>
+                <div class="text-xs text-gray-400" x-text="st._probe.content_type + ' • ' + st._probe.http_status"></div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <div x-show="loading" class="text-sm text-gray-500">Searching…</div>
+      </div>
+
+      <!-- Favorites -->
+      <div class="card p-4 rounded shadow">
+        <h3 class="font-semibold mb-3">Favorites</h3>
+        <template x-if="favorites.length===0">
+          <div class="text-gray-500">No favorites yet. Save stations from search results.</div>
+        </template>
+        <template x-for="(f, i) in favorites" :key="i">
+          <div class="flex items-center justify-between gap-3 mb-2 p-2 border rounded dark:border-gray-700" :class="nowPlayingUri===f.uri ? 'bg-indigo-50 dark:bg-indigo-900':''">
+            <div class="flex-1">
+              <div class="font-medium" x-text="f.name"></div>
+              <div class="text-xs text-gray-400 break-all" x-text="f.uri" style="font-family: ui-monospace,monospace"></div>
+            </div>
+            <div class="flex items-center gap-2">
+              <button class="px-3 py-1 bg-green-600 text-white rounded" @click="playStation(f.uri)">Play</button>
+              <button class="px-3 py-1 bg-red-500 text-white rounded" @click="removeFavorite(f.uri)">Remove</button>
+            </div>
+          </div>
+        </template>
+      </div>
+
+    </div>
+
+    <!-- Right: Now playing + custom -->
+    <div class="space-y-4">
+      <div class="card p-4 rounded shadow">
+        <h3 class="font-semibold mb-3">Now Playing ({{selectedSpeaker}})</h3>
+        <div class="flex flex-col items-center">
+          <img :src="nowPlaying.album_art" class="w-40 h-40 rounded mb-3" x-show="nowPlaying.album_art">
+          <div class="font-bold text-lg" x-text="nowPlaying.title || '—'"></div>
+          <div class="text-sm text-gray-500" x-text="nowPlaying.artist"></div>
+          <div class="text-xs text-gray-400 mt-2" x-text="nowPlaying.album"></div>
+        </div>
+        <!-- Playback -->
+        <div class="flex gap-2 mt-3 w-full">
+          <button class="flex-1 bg-gray-600 text-white py-2 rounded" @click="sendCmd('previous')">Prev</button>
+          <button class="flex-1 bg-green-500 text-white py-2 rounded" @click="sendCmd('play')">Play</button>
+          <button class="flex-1 bg-yellow-500 text-white py-2 rounded" @click="sendCmd('pause')">Pause</button>
+          <button class="flex-1 bg-gray-600 text-white py-2 rounded" @click="sendCmd('next')">Next</button>
+        </div>
+        <!-- Volume -->
+        <div class="flex items-center gap-2 mt-3 w-full">
+          <button class="px-2 py-1 bg-gray-600 text-white rounded" 
+            @click="nowPlaying.mute ? sendCmd('unmute') : sendCmd('mute')" 
+            x-text="nowPlaying.mute ? 'Unmute' : 'Mute'">
+          </button>
+          <input type="range" min="0" max="100" step="1" x-model.number="nowPlaying.volume" @input="updateVolume" class="flex-1">
+          <span class="text-sm w-8 text-right" x-text="nowPlaying.volume"></span>
+        </div>
+      </div>
+
+      <div class="card p-4 rounded shadow">
+        <h3 class="font-semibold mb-3">Play Custom URI</h3>
+        <input type="text" x-model="customUri" placeholder="Paste direct MP3/AAC stream URL" class="w-full p-2 rounded bg-white dark:bg-gray-800 mb-2">
+        <div class="flex gap-2">
+          <button class="flex-1 bg-yellow-500 text-white py-2 rounded" @click="probeQuick()">Test</button>
+          <button class="flex-1 bg-indigo-600 text-white py-2 rounded" @click="playCustom()" :disabled="!quickProbe.playable">Play</button>
+        </div>
+        <div x-show="quickProbe" class="mt-2 text-sm">
+          <div :class="quickProbe.playable ? 'text-green-400' : 'text-red-400'" x-text="quickProbe.playable ? 'Playable' : quickProbe.reason"></div>
+          <div class="text-xs text-gray-400" x-text="quickProbe.content_type + ' • ' + quickProbe.http_status"></div>
+        </div>
+      </div>
+
+      <div class="card p-4 rounded shadow">
+        <h3 class="font-semibold mb-3">Jamendo / Future Integrations</h3>
+        <div class="text-sm text-gray-500">This area will later allow connecting a Jamendo API key to browse tracks and import playable streams. For now, you can save station URIs as favorites and we'll play them via Sonos.</div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+document.addEventListener('alpine:init', () => {
+  Alpine.data('app', () => ({
+    dark: true,
+    speakers: [],
+    selectedSpeaker: null,
+    results: [],
+    favorites: [],
+    loading: false,
+    nowPlaying: {},
+    nowPlayingUri: "",
+    searchQuery: "",
+    customUri: "",
+    quickProbe: null,
+    pollingTimer: null,
+
+    init() {
+      this.refreshSpeakers();
+      this.loadFavorites();
+
+      // Start periodic now-playing updates
+      this.pollingTimer = setInterval(() => {
+        if (this.selectedSpeaker) this.refreshNowPlaying();
+      }, 4000); // poll every 4 seconds
+    },
+
+    // SPEAKER DISCOVERY
+    refreshSpeakers() {
+      fetch('/speakers')
+        .then(r => r.json())
+        .then(d => {
+          this.speakers = d.speakers || [];
+          if (!this.selectedSpeaker && this.speakers.length) {
+            this.selectedSpeaker = this.speakers[0];
+            this.refreshNowPlaying();
+          }
+        })
+        .catch(err => console.error("Speaker refresh failed", err));
+    },
+
+    // NOW PLAYING
+    refreshNowPlaying() {
+      if (!this.selectedSpeaker) return;
+      fetch(`/track_info?ip=${encodeURIComponent(this.selectedSpeaker)}`)
+        .then(r => r.json())
+        .then(d => {
+          if (d.status === 'ok') {
+            this.nowPlaying = d;
+          } else {
+            this.nowPlaying = { title: '—', artist: '', album: '', album_art: '' };
+          }
+        })
+        .catch(err => console.warn("track_info fetch failed:", err));
+    },
+
+    // RADIO SEARCH
+    searchStations() {
+      this.loading = true;
+      const q = this.searchQuery || "";
+      fetch(`/search_stations?q=${encodeURIComponent(q)}&limit=30`)
+        .then(r => r.json())
+        .then(d => {
+          this.loading = false;
+          if (d.status === 'ok') {
+            this.results = d.results || [];
+            this.results.forEach(r => r._probe = null);
+          } else {
+            alert("Search failed: " + (d.message || ""));
+          }
+        })
+        .catch(e => {
+          this.loading = false;
+          alert("Search failed: " + e);
+        });
+    },
+
+    // STREAM PROBE
+    probe(station, idx) {
+      const uri = station.uri;
+      station._probe = { testing: true };
+      fetch('/streams/probe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uri })
+      })
+      .then(r => r.json())
+      .then(data => station._probe = data)
+      .catch(e => station._probe = { playable: false, reason: String(e) });
+    },
+
+    probeQuick() {
+      this.quickProbe = { testing: true };
+      fetch('/streams/probe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uri: this.customUri })
+      })
+      .then(r => r.json())
+      .then(data => this.quickProbe = data)
+      .catch(e => this.quickProbe = { playable: false, reason: String(e) });
+    },
+
+    // PLAYBACK
+    playStation(uri) {
+      if (!this.selectedSpeaker) return alert("Select a speaker first");
+      fetch('/play_uri', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ip: this.selectedSpeaker, uri })
+      })
+      .then(r => r.json())
+      .then(d => {
+        if (d.status !== 'ok') {
+          alert("Play failed: " + (d.message || JSON.stringify(d)));
+        } else {
+          this.nowPlayingUri = uri;
+          this.refreshNowPlaying();
+          // keep updating metadata shortly after playback starts
+          setTimeout(() => this.refreshNowPlaying(), 3000);
+          setTimeout(() => this.refreshNowPlaying(), 7000);
+        }
+      })
+      .catch(e => alert("Play failed: " + e));
+    },
+
+    playCustom() {
+      if (!this.customUri) return alert("Enter a URI");
+      if (!this.quickProbe || !this.quickProbe.playable)
+        return alert("Probe the URI first and ensure playable");
+      this.playStation(this.customUri);
+    },
+
+    // COMMANDS
+    sendCmd(cmd) {
+      if (!this.selectedSpeaker) return alert("Select a speaker first");
+      fetch(`/${cmd}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ip: this.selectedSpeaker })
+      })
+      .then(() => this.refreshNowPlaying())
+      .catch(e => console.error(cmd + " failed:", e));
+    },
+ updateVolume() {
+  if (!this.selectedSpeaker) return;
+  fetch('/volume', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ip: this.selectedSpeaker, level: this.nowPlaying.volume })
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.status !== 'ok') console.warn('Volume update failed', d);
+  })
+  .catch(e => console.error('Volume update error', e));
+},
+    // FAVORITES
+    loadFavorites() {
+      fetch('/favorites')
+        .then(r => r.json())
+        .then(d => this.favorites = d.favorites || []);
+    },
+
+    addFavorite(st) {
+      fetch('/favorites', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: st.name, uri: st.uri })
+      })
+      .then(r => r.json())
+      .then(d => {
+        this.favorites = d.favorites || [];
+        alert("Saved to favorites");
+      });
+    },
+
+    removeFavorite(uri) {
+      fetch('/favorites', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uri })
+      })
+      .then(r => r.json())
+      .then(d => this.favorites = d.favorites || []);
+    }
+  }));
+});
+</script>
+
+
+</body>
+</html>
