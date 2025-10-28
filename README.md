@@ -69,3 +69,4 @@ This project was **created with the assistance of AI tools**, including code gen
 ### Future Integrations
 * Refine favorites catalog
 * Test/Add support to search Jamendo API
+* Explore methods to proxy incompatible streams/MIME type
