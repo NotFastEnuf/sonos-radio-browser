@@ -1,0 +1,22 @@
+version: "3.9"
+
+services:
+  sonos-radio:
+    build: .
+    container_name: sonos-radio
+    # If you're running on Linux/Raspberry Pi and want Sonos LAN discovery to work, you
+    # can set `network_mode: "host"` here. On Windows Docker Desktop host networking
+    # is not supported and causes published ports to be ignored, so we instead publish
+    # the Flask port below so the app is reachable at http://localhost:5000.
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+      - TZ=America/New_York
+    restart: unless-stopped
+    volumes:
+      - ./favorites.json:/app/favorites.json
+      - ./app:/app/app  # mount local `app/` into container at /app/app (don't override /app which contains app.py)
+    # cap_add only needed for advanced networking (optional)
+    cap_add:
+      - NET_ADMIN

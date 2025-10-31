@@ -36,6 +36,11 @@
           <option :value="ip" x-text="ip"></option>
         </template>
       </select>
+      <!-- Manual IP entry for environments where discovery doesn't work (e.g., Docker Desktop on Windows) -->
+      <div class="mt-3 flex gap-2">
+        <input type="text" x-model="manualIp" placeholder="Enter Sonos IP (e.g. 192.168.1.149)" class="flex-1 p-2 rounded bg-white dark:bg-gray-800" />
+        <button class="px-3 py-1 bg-indigo-600 text-white rounded" @click="useManualIp">Use IP</button>
+      </div>
       <div class="mt-3 text-sm text-gray-500 dark:text-gray-400">
         <button class="px-3 py-1 bg-gray-600 text-white rounded" @click="refreshSpeakers">Refresh</button>
         <span class="ml-2">Found <strong x-text="speakers.length"></strong></span>
@@ -181,10 +186,21 @@ document.addEventListener('alpine:init', () => {
     customUri: "",
     quickProbe: null,
     pollingTimer: null,
+    manualIp: "",
 
     init() {
       this.refreshSpeakers();
       this.loadFavorites();
+
+      // if a manual IP was previously saved in localStorage, prefer it
+      try {
+        const stored = localStorage.getItem('sonos_ip');
+        if (stored) {
+          this.manualIp = stored;
+          this.selectedSpeaker = stored;
+          this.refreshNowPlaying();
+        }
+      } catch (e) {}
 
       // Start periodic now-playing updates
       this.pollingTimer = setInterval(() => {
@@ -204,6 +220,13 @@ document.addEventListener('alpine:init', () => {
           }
         })
         .catch(err => console.error("Speaker refresh failed", err));
+    },
+
+    useManualIp() {
+      if (!this.manualIp) return alert('Enter an IP address first');
+      this.selectedSpeaker = this.manualIp;
+      try { localStorage.setItem('sonos_ip', this.manualIp); } catch (e) {}
+      this.refreshNowPlaying();
     },
 
     // NOW PLAYING
