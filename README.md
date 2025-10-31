@@ -9,6 +9,7 @@ This project provides a granular web-based control interface for Sonos speakers,
 * Adjust and view live speaker volume
 * Mute or unmute your speaker
 * View current track metadata and cover art when available
+* Utalizes ffmpeg under the hood to proxy incompatible radio streams to Sonos avoiding MIME errors from incompatible streams
 
 It automatically discovers Sonos speakers on your local network and communicates directly with them using their local API.
 
@@ -24,7 +25,23 @@ This software is **not affiliated with, endorsed by, or supported by Sonos, Inc.
 * Requests
 * A local Sonos speaker on the same network
 
-### Setup
+### Manual Setup - Docker
+
+1.  Clone or download this repository.
+
+2.  Bring up the docker container
+
+```docker compose up --build -d```
+
+3.  Open your browser and visit:
+
+```http://localhost:5000```
+or, from another device on the same LAN:
+
+```http://<your-computer-ip>:5000```
+
+### Manual Setup - USE WITH CAUTION
+This approach allows connection of host machine to unsecured sources without warning - docker containeried setup is reccomended
 
 1. Clone or download this repository.
 2. Init a python virtual environment and install dependencies.
@@ -55,7 +72,7 @@ This software is **not affiliated with, endorsed by, or supported by Sonos, Inc.
 ### Notes
 
 * Radio streams are provided through the [Radio Browser API](https://www.radio-browser.info/).
-* Not all streams are guaranteed to be compatible with Sonos; the backend attempts to validate stream types for best compatibility, but MIME type is not fully realized until streaming to the Sonos.  
+* Not all streams are guaranteed to be compatible with Sonos; the backend attempts to relay all stream types using ffmpegs for best compatibility.  
 * The project uses Tailwind CSS for a clean and modern UI.
 
 ### Credits
@@ -69,4 +86,3 @@ This project was **created with the assistance of AI tools**, including code gen
 ### Future Integrations
 * Refine favorites catalog
 * Test/Add support to search Jamendo API
-* Explore methods to proxy incompatible streams/MIME type

@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  sonos-radio:
+    build: .
+    container_name: sonos-radio
+    network_mode: "host"
+    environment:
+      - FLASK_ENV=production
+      - TZ=America/New_York
+    restart: unless-stopped
+    volumes:
+      - ./favorites.json:/app/favorites.json
+      - ./app:/app/app  # mount local `app/` into container at /app/app (don't override /app which contains app.py)
+    # cap_add only needed for advanced networking (optional)
+    cap_add:
+      - NET_ADMIN

@@ -6,11 +6,15 @@ import requests
 from urllib.parse import urlparse, quote_plus, unquote
 import os, json, time
 import re
+import subprocess
+import shutil
+
 
 app = Flask(__name__)
 
 # ---- Configuration ----
-FAVORITES_FILE = "favorites.json"
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+FAVORITES_FILE = os.path.join(APP_DIR, "favorites.json")
 RADIO_BROWSER_BASE = "https://de1.api.radio-browser.info/json"
 API_SERVERS = [
     "de1.api.radio-browser.info",
@@ -246,54 +250,59 @@ def probe_url(uri, timeout=6, chunk_test=True):
         result["reason"] = f"probe error: {e}"
         return result
 
+# ---- Relay endpoint for Sonos ----
+# ---- FFmpeg Stream Helper ----
+def ffmpeg_stream(url, bitrate="128k", samplerate=44100):
+    """
+    Launch FFmpeg to decode any external stream and output MP3 44.1kHz for Sonos.
+    Returns a file-like stdout stream.
+    """
+    ffmpeg_path = shutil.which("ffmpeg")
+    if not ffmpeg_path:
+        raise RuntimeError("FFmpeg not found in PATH. Install FFmpeg before using the relay.")
+
+    cmd = [
+        ffmpeg_path,
+        "-i", url,
+        "-f", "mp3",
+        "-ar", str(samplerate),
+        "-b:a", bitrate,
+        "pipe:1"
+    ]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    return proc.stdout
 
 # ---- Relay endpoint for Sonos ----
 @app.route("/relay")
 def relay_stream():
-    """
-    Streams target URL through this server to Sonos.
-    If target is a playlist, we try to resolve it to a direct stream first.
-    """
     target = request.args.get("url")
     if not target:
         return "No URL provided", 400
 
-    # decode possible double-encoded values
     target = unquote(target)
 
-    headers = {"User-Agent": "Linux UPnP/1.0 Sonos/99.9 (SonosRelay)"}
+    # Resolve playlists
+    if any(target.lower().endswith(ext) for ext in PLAYLIST_EXTS):
+        candidates = resolve_playlist(target)
+        if candidates:
+            target = candidates[0]
+
     try:
-        # If target looks like a playlist, try to resolve
-        if any(target.lower().endswith(ext) for ext in PLAYLIST_EXTS):
-            candidates = resolve_playlist(target)
-            if candidates:
-                # pick first candidate that looks audio
-                for cand in candidates:
-                    try:
-                        head = requests.head(cand, headers=headers, timeout=4, allow_redirects=True)
-                        ctype = (head.headers.get("Content-Type") or "").split(";")[0].strip().lower()
-                        if ctype and ("audio" in ctype or ctype in ACCEPTED_MIME):
-                            target = head.url
-                            break
-                    except Exception:
-                        continue
+        def generate():
+            stream = ffmpeg_stream(target)
+            while True:
+                chunk = stream.read(8192)
+                if not chunk:
+                    break
+                yield chunk
+            stream.close()
 
-        # Now stream the final target
-        r = requests.get(target, headers=headers, stream=True, allow_redirects=True, timeout=8)
-        ctype = (r.headers.get("Content-Type") or "audio/mpeg").split(";")[0].strip().lower()
+        return Response(stream_with_context(generate()), mimetype="audio/mpeg")
 
-        # If content-type strange, prefer audio/mpeg for Sonos
-        if not (("audio" in ctype) or (ctype in ACCEPTED_MIME)):
-            ctype = "audio/mpeg"
-
-        # Stream to client (Sonos)
-        return Response(
-            stream_with_context(r.iter_content(chunk_size=8192)),
-            content_type=ctype
-        )
     except Exception as e:
         app.logger.exception("relay failed")
         return f"Relay failed: {e}", 500
+
 
 
 # ---- Current track info ----
@@ -425,33 +434,47 @@ def play_uri():
     s = get_soco(ip)
     if not s:
         return jsonify({"status": "error", "message": "speaker not found"}), 404
-
-    # Normalize
     if not uri:
         return jsonify({"status": "error", "message": "no uri"}), 400
 
-    # If already a relay URL, just play it
-    if uri.startswith("/relay") or "/relay?" in uri:
-        play_target = uri
-    else:
-        probe = probe_url(uri)
-        app.logger.info(f"probe result for {uri}: {probe}")
-        # If probe says playable, use final_url (direct)
-        if probe.get("playable"):
-            play_target = probe.get("final_url") or uri
-        else:
-            # otherwise use relay (attempt to make it playable)
-            # relay takes a raw target url param, ensure encoding
-            play_target = f"/relay?url={quote_plus(uri)}"
+    # Build fully qualified URL for the relay endpoint
+    # Use LAN IP, not localhost
+    host_ip = request.host.split(":")[0]  # e.g., 192.168.1.180
+    host_port = request.host.split(":")[1] if ":" in request.host else "5000"
+    host_url = f"http://{host_ip}:{host_port}"
+    play_target = f"{host_url}/relay?url={quote_plus(uri)}"
 
     try:
         s.stop()
-        s.play_uri(play_target)
+
+        # Provide minimal metadata to prevent UPnP 714
+        metadata = f"""<?xml version="1.0"?>
+        <DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/"
+                   xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/"
+                   xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/">
+          <item id="0" parentID="-1" restricted="true">
+            <dc:title>Radio Stream</dc:title>
+            <upnp:class>object.item.audioItem.audioBroadcast</upnp:class>
+            <res protocolInfo="http-get:*:audio/mpeg:*">{play_target}</res>
+          </item>
+        </DIDL-Lite>"""
+
+        s.avTransport.SetAVTransportURI([
+            ("InstanceID", 0),
+            ("CurrentURI", play_target),
+            ("CurrentURIMetaData", metadata)
+        ])
+        s.play()
+
         app.logger.info(f"play_uri {play_target} on {ip}")
         return jsonify({"status": "ok", "uri": play_target})
+
     except Exception as e:
         app.logger.exception("play_uri failed")
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+
 
 
 # ---- Stream probe endpoint ----
