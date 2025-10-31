@@ -18,29 +18,17 @@ This software is **not affiliated with, endorsed by, or supported by Sonos, Inc.
 
 ### Requirements
 
-* Python 3.9 or later
-* Flask
-* SoCo (Sonos Controller Library)
-* Requests
-* A local Sonos speaker on the same network
+* Docker
+* Docker Compose
 
 ### Setup
 
 1. Clone or download this repository.
-2. Init a python virtual environment and install dependencies.
-   ```bash
-   python -m venv venv
-   cd venv
-   cd Scripts
-   activate
-   pip install flask soco requests
+2. Bring up the docker container
    ```
-3. Run the backend server:
-
-   ```bash
-   python app.py
+   docker compose up --build -d
    ```
-4. Open your browser and visit:
+3. Open your browser and visit:
 
    ```
    http://localhost:5000
@@ -53,9 +41,9 @@ This software is **not affiliated with, endorsed by, or supported by Sonos, Inc.
    ```
 
 ### Notes
-
+* Automatic detecton of Sonos speakers is not supported due to restrictions sharing lan with docker container on windows.  Manual IP entry of Sonos speaker has been added.
 * Radio streams are provided through the [Radio Browser API](https://www.radio-browser.info/).
-* Not all streams are guaranteed to be compatible with Sonos; the backend attempts to validate stream types for best compatibility, but MIME type is not fully realized until streaming to the Sonos.  
+* Not all streams are guaranteed to be compatible with Sonos; the backend attempts to relay all stream types using ffmpegs for best compatibility.  
 * The project uses Tailwind CSS for a clean and modern UI.
 
 ### Credits
@@ -69,4 +57,3 @@ This project was **created with the assistance of AI tools**, including code gen
 ### Future Integrations
 * Refine favorites catalog
 * Test/Add support to search Jamendo API
-* Explore methods to proxy incompatible streams/MIME type
