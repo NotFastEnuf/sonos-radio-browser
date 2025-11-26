@@ -32,8 +32,8 @@
     <div class="card p-4 rounded shadow">
       <label class="block text-sm font-medium mb-2">Select Speaker</label>
       <select x-model="selectedSpeaker" @change="refreshNowPlaying" class="w-full p-2 rounded bg-white dark:bg-gray-800">
-        <template x-for="(ip, idx) in speakers" :key="idx">
-          <option :value="ip" x-text="ip"></option>
+        <template x-for="(sp, idx) in speakers" :key="idx">
+          <option :value="sp" x-text="sp.name + ' (' + sp.ip + ')' "></option>
         </template>
       </select>
       <div class="mt-3 text-sm text-gray-500 dark:text-gray-400">
@@ -118,7 +118,7 @@
     <!-- Right: Now playing + custom -->
     <div class="space-y-4">
       <div class="card p-4 rounded shadow">
-        <h3 class="font-semibold mb-3">Now Playing ({{selectedSpeaker}})</h3>
+  <h3 class="font-semibold mb-3">Now Playing <span x-text="selectedSpeaker ? selectedSpeaker.name + ' (' + selectedSpeaker.ip + ')' : ''"></span></h3>
         <div class="flex flex-col items-center">
           <img :src="nowPlaying.album_art" class="w-40 h-40 rounded mb-3" x-show="nowPlaying.album_art">
           <div class="font-bold text-lg" x-text="nowPlaying.title || '—'"></div>
@@ -170,8 +170,8 @@
 document.addEventListener('alpine:init', () => {
   Alpine.data('app', () => ({
     dark: true,
-    speakers: [],
-    selectedSpeaker: null,
+  speakers: [],
+  selectedSpeaker: null,
     results: [],
     favorites: [],
     loading: false,
@@ -209,7 +209,7 @@ document.addEventListener('alpine:init', () => {
     // NOW PLAYING
     refreshNowPlaying() {
       if (!this.selectedSpeaker) return;
-      fetch(`/track_info?ip=${encodeURIComponent(this.selectedSpeaker)}`)
+      fetch(`/track_info?ip=${encodeURIComponent(this.selectedSpeaker.ip)}`)
         .then(r => r.json())
         .then(d => {
           if (d.status === 'ok') {
@@ -274,7 +274,7 @@ document.addEventListener('alpine:init', () => {
       fetch('/play_uri', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ip: this.selectedSpeaker, uri })
+        body: JSON.stringify({ ip: this.selectedSpeaker.ip, uri })
       })
       .then(r => r.json())
       .then(d => {
@@ -304,7 +304,7 @@ document.addEventListener('alpine:init', () => {
       fetch(`/${cmd}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ip: this.selectedSpeaker })
+        body: JSON.stringify({ ip: this.selectedSpeaker.ip })
       })
       .then(() => this.refreshNowPlaying())
       .catch(e => console.error(cmd + " failed:", e));
@@ -314,7 +314,7 @@ document.addEventListener('alpine:init', () => {
   fetch('/volume', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ip: this.selectedSpeaker, level: this.nowPlaying.volume })
+    body: JSON.stringify({ ip: this.selectedSpeaker.ip, level: this.nowPlaying.volume })
   })
   .then(r => r.json())
   .then(d => {

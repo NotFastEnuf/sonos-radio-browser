@@ -47,8 +47,11 @@ def discover_speakers():
         return []
 
 
-def list_speaker_ips():
-    return [s.ip_address for s in discover_speakers()]
+def list_speakers():
+    return [
+        {"ip": s.ip_address, "name": getattr(s, "player_name", s.ip_address)}
+        for s in discover_speakers()
+    ]
 
 
 def get_soco(ip):
@@ -333,12 +336,12 @@ def get_current_track_info(ip):
 # ---- Flask Routes ----
 @app.route("/")
 def index():
-    return render_template("index.html", speakers=list_speaker_ips(), favorites=load_favorites())
+    return render_template("index.html", speakers=list_speakers(), favorites=load_favorites())
 
 
 @app.route("/speakers")
 def speakers_list():
-    return jsonify({"speakers": list_speaker_ips()})
+    return jsonify({"speakers": list_speakers()})
 
 
 @app.route("/track_info")
